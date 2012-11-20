@@ -1,0 +1,169 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+use Socket;
+use Proc::Daemon;
+use Getopt::Long;
+use Sys::Syslog;
+
+my $app_name = 'hpip';
+my $listen_ip = 'LISTENIPG';
+my $listen_port = '53972';
+my $pid_file = "/var/run/$app_name";
+my $log_file = '/var/log/hpip.log';
+
+GetOptions (
+		'listen_ip' => \$listen_ip,
+		'listen_port' => \$listen_port,
+		'pid_file' => \$pid_file,
+		'log_file' => \$log_file
+	   );
+
+main (@ARGV);
+exit (0);
+
+sub main
+{
+	my ($act) = @_;
+	$act ||="";	
+
+	if ( $act eq "start")
+	{
+		if( get_pid_file() )
+		{
+			print "$0 is already running.\n";
+			return;
+		}
+		printf "initialize\n";
+		init();
+		run();
+		return;
+	}
+
+	if ($act eq "stop")
+	{
+		my $pid = get_pid_file();
+		if(not defined $pid)
+		{
+			print "$0 is not running\n";
+			return;
+		}
+		else
+		{
+			kill 9, $pid;
+			return del_pid_file();
+		}
+	}
+
+	if ($act eq "status")
+	{
+		my $pid = get_pid_file();
+		if(not defined $pid)
+		{
+			print "$0 is not running\n";
+			return;
+		}
+		else
+		{
+			print "$0 is already running. PID: $pid. \n";
+		}
+	}
+
+	print "usage: $0 [start|stop|status]\n";
+	return;
+}
+
+sub init
+{
+	Proc::Daemon::Init
+		(
+		 {
+		 work_dir => '/var/run',
+		 pid_file => "$pid_file",
+		 child_STDOUT => '/tmp/stdout.log',
+		 child_STDERR => '/tmp/stderr.log',
+		 }
+		);
+
+	$SIG{INT} = $SIG{HUP} = $SIG{QUIT} = $SIG{KILL} = $SIG{TERM} ='interrupt';
+
+	my $pid = $$;
+	set_pid_file($pid);
+
+	return;
+}
+
+sub run
+{
+	my $targegtaddr = inet_aton($listen_ip);
+	my $sock;
+
+	socket( $sock, PF_INET, SOCK_DGRAM, 0);
+	bind ( $sock, pack_sockaddr_in( $listen_port, INADDR_ANY) );
+
+	while ( 1 )
+	{
+		syslog('info','action');
+		action( $sock );
+	}
+
+	return 0;
+}
+
+sub interrupt
+{
+	my ($sig) = @_;
+	$SIG{$sig} = 'IGNORE';
+
+	return del_pid_file();
+}
+
+sub get_pid_file
+{
+	return undef if not -e $pid_file;
+
+	open my $fh, $pid_file or die "can't open $pid_file :$!";
+	my $line = <$fh>;
+	close $fh or die "can't close $pid_file :$!";
+
+	my ($pid) = $line =~ /(\d+)/o;
+	return ($pid_file,$pid);
+}
+
+sub set_pid_file
+{
+	my ($process_id) = @_;
+	open my $fh, ">$pid_file" or die "can't open $pid_file :$!";
+	print $fh $process_id;
+	close $fh or die "can't close $pid_file :$!";
+}
+
+sub del_pid_file
+{
+	unlink $pid_file or die "can't unlink $pid_file :$!";
+}
+
+sub action()
+{
+	my $sock = shift;
+	my $buf;
+	my $srcaddr;
+	my ($srcip,$srcport);
+
+	$srcaddr = recv ( $sock, $buf, 64, 0);
+	( $srcport, $srcip ) = unpack_sockaddr_in( $srcaddr );
+	$srcip = inet_ntoa( $srcip );
+
+	if ( $buf =~ /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/ ) 
+	{
+		syslog('info',"host : $buf, ip : $srcip");
+	}
+	else
+	{
+		syslog('info',"udp_atacked. ip : $srcip");
+	}
+
+	return 0;
+}
+

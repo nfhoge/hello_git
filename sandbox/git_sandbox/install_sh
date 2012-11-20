@@ -1,0 +1,23 @@
+#!/bin/sh
+
+MODE=$( id | grep "uid=0(root)" | wc -l )
+
+if [ $MODE -lt 1 ]; then
+        echo "Do this in root mode."
+        exit 1
+fi
+
+if ( [ $# -lt 1 ] |  $1 !~ /^\d{1-3}\.\d{1-3}\.\d{1-3}\.\d{1-3}$/) ; then
+        echo "install_sh <LOCATION m/o> <IPv4 ADDR>"
+        exit 1
+fi
+
+IPV4ADDR=$1
+
+cp ./hpip_sender /usr/local/bin/hpip_sender
+chmod 700 /usr/local/bin/hpip_sender
+chown root:root /usr/local/bin/hpip_sender
+
+perl -p -i -e "s/TARGETADDR/$IPV4ADDR/g" /usr/local/bin/hpip_sender
+
+echo "*/10 * * * * /usr/local/bin/hpip_sender\n" > /var/spool/cron/crontabs/root
